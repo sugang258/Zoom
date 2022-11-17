@@ -6,6 +6,8 @@ const myFace = document.getElementById("myFace");
 const muteBtn = document.getElementById("mute");
 const cameraBtn = document.getElementById("camera");
 const camerasSelect = document.getElementById("cameras");
+const nick = document.getElementById("nick");
+const msg = document.getElementById("msg");
 
 const call = document.getElementById("call");
 call.hidden = true;
@@ -81,6 +83,14 @@ function handleCameraClick(){
 
 async function handleCameraChange(){
     await getMedia(camerasSelect.value);
+    if(myPeerConnection) {
+        const videoTrack = myStream.getVideoTracks()[0];
+        const videoSender = myPeerConnection
+            .getSenders()
+            .find(sender => sender.track.kind ==="video");
+        videoSender.replaceTrack()
+
+    }
 }
 
 muteBtn.addEventListener("click",handleMuteClick);
@@ -118,96 +128,133 @@ socket.on("welcome",async () => {
     socket.emit("offer",offer,roomName);
 })
 
-socket.on("offer", (offer) => {
+socket.on("offer", async (offer) => {
+    console.log("receive the offer");
     myPeerConnection.setRemoteDescription(offer);
+    const answer = await myPeerConnection.createAnswer();
+    myPeerConnection.setLocalDescription(answer);
+    socket.emit("answer", answer,roomName);
+    console.log("sent the offer");
+
+
+})
+
+socket.on("answer", answer => {
+    console.log("receive the answer");
+    myPeerConnection.setRemoteDescription(answer);
+})
+
+socket.on("ice",ice => {
+    console.log("receive candidate");
+    myPeerConnection.addIceCandidate(ice);
 })
 
 
 //RTC Code
 
 function makeConnection() {
-    myPeerConnection = new RTCPeerConnection();
+    myPeerConnection = new RTCPeerConnection({
+        iceServers:[]
+    });
+    myPeerConnection.addEventListener("icecandidate", handleIce);
+    myPeerConnection.addEventListener("addstream",handleAddStream);
     myStream.getTracks().forEach(track => myPeerConnection.addTrack(track, myStream));
 }
 
-// room.hidden = true;
+function handleIce(data) {
+    console.log("sent candidate");
+    socket.emit("ice", data.candidate, roomName);
+}
 
-// let roomName,nickName;
+function handleAddStream(data) {
+    const peersFace = document.getElementById("peersFace");
+    peersFace.srcObject = data.stream;
+}
 
-// function addMessage(message){
-//     const ul = room.querySelector("ul")
-//     const li = document.createElement("li")
-//     li.innerText = message;
-//     ul.appendChild(li);
-// }
+room.hidden = true;
 
-// function handleMessageSubmit(event) {
+let nickName;
+
+function addMessage(message){
+    const ul = room.querySelector("ul")
+    const li = document.createElement("li")
+    li.innerText = message;
+    ul.appendChild(li);
+}
+
+function handleMessageSubmit(event) {
+    event.preventDefault();
+    const input = room.querySelector("#msg input");
+    const value = input.value;
+    socket.emit("new_message", input.value, roomName, () => {
+        addMessage(`You : ${value}`);
+    });
+    input.value="";
+
+}
+
+// function handleNicknameSubmit(event) {
 //     event.preventDefault();
-//     const input = room.querySelector("#msg input");
-//     const value = input.value;
-//     socket.emit("new_message", input.value, roomName, () => {
-//         addMessage(`You : ${value}`);
-//     });
-//     input.value="";
-
+//     const input = room.querySelector("#name input");
+//     socket.emit("nickName",input.value);
 // }
 
-// // function handleNicknameSubmit(event) {
-// //     event.preventDefault();
-// //     const input = room.querySelector("#name input");
-// //     socket.emit("nickName",input.value);
-// // }
+function showRoom() {
+    welcome.hidden = true;
+    room.hidden = false;
+    const h3 = room.querySelector("h3");
+    h3.innerText = `Room ${roomName}`;
+    span = room.querySelector("span");
+    span.innerText = `My nickname :  ${nickName}`;
+    const msgForm = room.querySelector("#msg");
+    //const nameForm = room.querySelector("#name");
+    msgForm.addEventListener("submit",handleMessageSubmit);
+    //msgForm.addEventListener("click",handleMessageSubmit);
+    
 
-// function showRoom() {
-//     welcome.hidden = true;
-//     room.hidden = false;
-//     const h3 = room.querySelector("h3");
-//     h3.innerText = `Room ${roomName}`;
-//     span = room.querySelector("span");
-//     span.innerText = `My nickname :  ${nickName}`;
-//     const msgForm = room.querySelector("#msg");
-//     //const nameForm = room.querySelector("#name");
-//     msgForm.addEventListener("submit",handleMessageSubmit);
-//     //nameForm.addEventListener("submit",handleNicknameSubmit);
-// }
+    //nameForm.addEventListener("submit",handleNicknameSubmit);
+}
 
-// function handleRoomSubmit(event) {
-//     event.preventDefault();
-//     // const input = form.querySelector("input");
-//     // socket.emit(
-//     //     "enter_room",
-//     //     input.value,
-//     //     showRoom);
-//     // roomName = input.value;
-//     // input.value="";
-//     const inputRoomname = form.querySelector("#roomname");
-//     const inputNickname = form.querySelector("#nickname");
+function handleRoomSubmit(event) {
+    event.preventDefault();
+    // const input = form.querySelector("input");
+    // socket.emit(
+    //     "enter_room",
+    //     input.value,
+    //     showRoom);
+    // roomName = input.value;
+    // input.value="";
+    const inputRoomname = nick.querySelector("#roomname");
+    const inputNickname = nick.querySelector("#nickname");
 
-//     roomName = inputRoomname.value;
-//     nickName = inputNickname.value;
+    roomName = inputRoomname.value;
+    nickName = inputNickname.value;
 
-//     socket.emit("enter_room",roomName, nickName,showRoom);
-//     inputRoomname.value = "";
-//     inputNickname.value ="";
-// }
+    console.log(roomName);
+    console.log(nickName);
 
-// form.addEventListener("submit",handleRoomSubmit);
+    socket.emit("enter_room",roomName, nickName,showRoom);
+    // inputRoomname.value = "";
+    // inputNickname.value ="";
+}
 
-// socket.on("welcome",(user, newCount) => {
-//     const h3 = room.querySelector("h3");
-//     h3.innerText = `Room ${roomName} (${newCount})`;
+nick.addEventListener("submit",handleRoomSubmit);
 
-//     addMessage(`${user} arrived!`);
-// });
+socket.on("welcome",(user, newCount) => {
+    const h3 = room.querySelector("h3");
+    h3.innerText = `Room ${roomName} (${newCount})`;
 
-// socket.on("bye", (left, newCount) => {
-//     const h3 = room.querySelector("h3");
-//     h3.innerText = `Room ${roomName} (${newCount})`;
+    addMessage(`${user} arrived!`);
+});
 
-//     addMessage(`${left} left ㅠㅠ`);
-// })
+socket.on("bye", (left, newCount) => {
+    const h3 = room.querySelector("h3");
+    h3.innerText = `Room ${roomName} (${newCount})`;
 
-// socket.on("new_message", addMessage);
+    addMessage(`${left} left ㅠㅠ`);
+})
+
+socket.on("new_message", addMessage);
 
 // socket.on("room_change",(rooms) => {
 //     const roomList = welcome.querySelector("ul");
